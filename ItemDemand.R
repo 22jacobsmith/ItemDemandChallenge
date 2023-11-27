@@ -294,3 +294,166 @@ for(s in 1:nStores){
     
   }
 }
+
+## SARIMA
+
+
+## AR - use past to predict future
+## MA - use unique part of each day to predict future
+## I - differencing
+## S - seasonal
+## AR uses short-term correlation, MA is longer/smooth
+
+
+## recipe
+
+
+cv_split <- time_series_split(store_item, assess="3 months", cumulative = TRUE)
+cv_split2 <- time_series_split(store_item_2, assess="3 months", cumulative = TRUE)
+
+store_item_test <-
+  test %>% filter(store == 7, item == 32)
+
+store_item_test_2 <-
+  test %>% filter(store == 1, item == 3)
+
+arima_recipe <- recipe(sales~., data = store_item) %>%
+  step_date(date, features = "dow") %>%
+  #step_date(date, features = "decimal") %>%
+  step_date(date, features = "doy") %>%
+  step_range(date_doy, min = 0, max = pi) %>%
+  step_mutate(sinDOY = sin(date_doy), cosDOY = cos(date_doy))
+
+arima_model <- arima_reg(seasonal_period = 365,
+                         non_seasonal_ar = 5,
+                         non_seasonal_ma = 5,
+                         seasonal_ar = 2,
+                         seasonal_ma = 2,
+                         non_seasonal_differences = 2,
+                         seasonal_differences = 2) %>%
+  set_engine("auto_arima")
+
+
+arima_wf <- workflow() %>%
+  add_recipe(arima_recipe) %>%
+  add_model(arima_model) %>%
+  fit(data = training(cv_split))
+
+cv_results <- modeltime_calibrate(arima_wf,
+                                  new_data = testing(cv_split))
+
+
+
+## Visualize CV results
+cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split),
+    actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+p1 <- cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split),
+    actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+## Evaluate the accuracy
+cv_results %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## Refit to all data then forecast
+arima_fullfit <- cv_results %>%
+  modeltime_refit(data = store_item)
+
+arima_preds <- arima_fullfit %>%
+  modeltime_forecast(new_data = testing(cv_split)) %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test, by="date") %>%
+  select(id, sales)
+
+arima_fullfit %>%
+  modeltime_forecast(new_data = store_item_test, actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=FALSE, .legend_show = FALSE)
+
+p2 <- arima_fullfit %>%
+  modeltime_forecast(new_data = store_item_test, actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+
+# refit for second combination
+
+
+arima_recipe <- recipe(sales~., data = store_item_2) %>%
+  step_date(date, features = "dow") %>%
+  #step_date(date, features = "decimal") %>%
+  step_date(date, features = "doy") %>%
+  step_range(date_doy, min = 0, max = pi) %>%
+  step_mutate(sinDOY = sin(date_doy), cosDOY = cos(date_doy))
+
+arima_model <- arima_reg(seasonal_period = 365,
+                         non_seasonal_ar = 5,
+                         non_seasonal_ma = 5,
+                         seasonal_ar = 2,
+                         seasonal_ma = 2,
+                         non_seasonal_differences = 2,
+                         seasonal_differences = 2) %>%
+  set_engine("auto_arima")
+
+
+arima_wf <- workflow() %>%
+  add_recipe(arima_recipe) %>%
+  add_model(arima_model) %>%
+  fit(data = training(cv_split2))
+
+cv_results <- modeltime_calibrate(arima_wf,
+                                  new_data = testing(cv_split2))
+
+
+
+## Visualize CV results
+cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split2),
+    actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+p3 <- cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split2),
+    actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+## Evaluate the accuracy
+cv_results %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## Refit to all data then forecast
+arima_fullfit <- cv_results %>%
+  modeltime_refit(data = store_item_2)
+
+arima_preds <- arima_fullfit %>%
+  modeltime_forecast(new_data = testing(cv_split2)) %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test, by="date") %>%
+  select(id, sales)
+
+arima_fullfit %>%
+  modeltime_forecast(new_data = store_item_test_2, actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=FALSE, .legend_show = FALSE)
+
+p4 <- arima_fullfit %>%
+  modeltime_forecast(new_data = store_item_test_2, actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+### create output plots
+
+
+subplot(p1,p3,p2,p4, nrows = 2)
+
+# cv, pred top row, cv, pred bottom row for 2nd group
+
+# ma short, ar long
