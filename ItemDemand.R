@@ -557,7 +557,7 @@ p4 <- prophet_fullfit %>%
   plot_modeltime_forecast(.interactive=FALSE, .legend_show = FALSE)
 
 
-
+subplot(p1,p3,p2,p4, nrows = 2)
 
 
 # top row: cv overlaid, bottom row: 3 month forescasts
