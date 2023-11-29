@@ -452,8 +452,112 @@ p4 <- arima_fullfit %>%
 ### create output plots
 
 
-subplot(p1,p3,p2,p4, nrows = 2)
+subplot(p1,p2,p3,p4, nrows = 2)
 
 # cv, pred top row, cv, pred bottom row for 2nd group
 
 # ma short, ar long
+
+
+
+
+### PROPHET MODEL
+
+# store item combo 1
+prophet_model <- prophet_reg() %>%
+  set_engine("prophet") %>%
+  fit(sales ~ date, training(cv_split))
+
+## calibrate the workflow
+
+cv_results <- modeltime_calibrate(arima_wf, new_data = testing(cv_split))
+
+
+
+## visualize, evaluate CV accuracy
+
+cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split),
+    actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+p1 <- cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split),
+    actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+## Evaluate the accuracy
+cv_results %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## refit best model to whole data, predict
+
+prophet_fullfit <- cv_results %>%
+  modeltime_refit(data = store_item)
+
+prophet_preds <- prophet_fullfit %>%
+  modeltime_forecast(new_data = testing(cv_split)) %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test, by="date") %>%
+  select(id, sales)
+
+p2 <- prophet_fullfit %>%
+  modeltime_forecast(new_data = store_item_test, actual_data = store_item) %>%
+  plot_modeltime_forecast(.interactive=FALSE, .legend_show = FALSE)
+
+# store item combo 2
+
+prophet_model <- prophet_reg() %>%
+  set_engine("prophet") %>%
+  fit(sales ~ date, training(cv_split2))
+
+## calibrate the workflow
+
+cv_results <- modeltime_calibrate(arima_wf, new_data = testing(cv_split2))
+
+
+
+## visualize, evaluate CV accuracy
+
+cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split2),
+    actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+p3 <- cv_results %>%
+  modeltime_forecast(
+    new_data = testing(cv_split2),
+    actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+## Evaluate the accuracy
+cv_results %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## refit best model to whole data, predict
+
+prophet_fullfit <- cv_results %>%
+  modeltime_refit(data = store_item_2)
+
+prophet_preds <- prophet_fullfit %>%
+  modeltime_forecast(new_data = testing(cv_split2)) %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test, by="date") %>%
+  select(id, sales)
+
+p4 <- prophet_fullfit %>%
+  modeltime_forecast(new_data = store_item_test_2, actual_data = store_item_2) %>%
+  plot_modeltime_forecast(.interactive=FALSE, .legend_show = FALSE)
+
+
+
+
+
+# top row: cv overlaid, bottom row: 3 month forescasts
