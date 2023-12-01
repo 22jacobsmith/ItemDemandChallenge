@@ -470,7 +470,7 @@ prophet_model <- prophet_reg() %>%
 
 ## calibrate the workflow
 
-cv_results <- modeltime_calibrate(arima_wf, new_data = testing(cv_split))
+cv_results <- modeltime_calibrate(prophet_model, new_data = testing(cv_split))
 
 
 
@@ -517,7 +517,7 @@ prophet_model <- prophet_reg() %>%
 
 ## calibrate the workflow
 
-cv_results <- modeltime_calibrate(arima_wf, new_data = testing(cv_split2))
+cv_results <- modeltime_calibrate(prophet_model, new_data = testing(cv_split2))
 
 
 
@@ -561,3 +561,143 @@ subplot(p1,p3,p2,p4, nrows = 2)
 
 
 # top row: cv overlaid, bottom row: 3 month forescasts
+
+
+
+
+#### ACTUAL MODEL FITTING
+
+
+nStores <- max(train$store)
+nItems <- max(train$item)
+
+
+# main double-loop to set up store-item pairs
+
+for(s in 1:nStores){
+  for(i in 1:nItems){
+    storeItemTrain <- train %>%
+      filter(store==s, item==i)
+    storeItemTest <- test %>%
+      filter(store==s, item==i)
+    
+    ## Fit storeItem models here
+    prophet_model <- prophet_reg() %>%
+      set_engine("prophet") %>%
+      fit(sales ~ date, storeItemTrain)
+    
+    ## Predict storeItem sales
+    preds <- prophet_model %>% predict(new_data = storeItemTest)
+    ## Save storeItem predictions
+    if(s==1 & i==1){
+      all_preds <- preds
+    } else {
+      all_preds <- bind_rows(all_preds, preds)
+    }
+    
+  }
+}
+
+output <- tibble(test$id, all_preds)
+output %>% View()
+
+
+
+### code to put in notebook - prophet
+
+
+for(s in 1:nStores){
+  for(i in 1:nItems){
+    storeItemTrain <- train %>%
+      filter(store==s, item==i)
+    storeItemTest <- test %>%
+      filter(store==s, item==i)
+    
+    ## Fit storeItem models here
+    prophet_model <- prophet_reg() %>%
+      set_engine("prophet") %>%
+      fit(sales ~ date, storeItemTrain)
+    
+    ## Predict storeItem sales
+    preds <- prophet_model %>% predict(new_data = storeItemTest)
+    ## Save storeItem predictions
+    if(s==1 & i==1){
+      all_preds <- preds
+    } else {
+      all_preds <- bind_rows(all_preds, preds)
+    }
+    
+  }
+}
+
+output <- data.frame(id = test$id, sales = all_preds$.pred)
+output %>% View()
+vroom_write(output, "submission.csv", delim = ",")
+
+
+
+
+## code to be used in kaggle notebook submission - random forest
+
+# Libraries
+library(tidyverse) 
+library(modeltime)
+library(tidymodels)
+library(vroom)
+library(embed)
+library(parsnip)
+library(bonsai)
+library(lightgbm)
+
+
+item <- vroom::vroom("/kaggle/input/demand-forecasting-kernels-only/train.csv")
+itemTest <- vroom::vroom("/kaggle/input/demand-forecasting-kernels-only/test.csv")
+n.stores <- max(item$store)
+n.items <- max(item$item)
+
+## Define the workflow
+item_recipe <- recipe(sales~., data=item) %>%
+  step_date(date, features=c("dow", "month", "decimal", "doy", "year")) %>%
+  step_range(date_doy, min=0, max=pi) %>%
+  step_mutate(sinDOY=sin(date_doy), cosDOY=cos(date_doy)) %>%
+  step_lencode_mixed(all_nominal_predictors(), outcome=vars(sales)) %>%
+  step_rm(date, item, store) %>%
+  step_normalize(all_numeric_predictors())
+rf_model <- rand_forest(mtry = 3, min_n = 30) %>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+rf_wf <- workflow() %>%
+  add_recipe(item_recipe) %>%
+  add_model(rf_model)
+
+# main doube Loop over all store-item combos
+for(s in 1:n.stores){
+  for(i in 1:n.items){
+    
+    ## Subset the data
+    train <- item %>%
+      filter(store==s, item==i)
+    test <- itemTest %>%
+      filter(store==s, item==i)
+    
+    ## Fit the data and forecast
+    fitted_wf <- rf_wf %>%
+      fit(data=train)
+    preds <- predict(fitted_wf, new_data=test) %>%
+      bind_cols(test) %>%
+      rename(sales=.pred) %>%
+      select(id, sales)
+    
+    ## Save the results
+    if(s==1 && i==1){
+      all_preds <- preds
+    } else {
+      all_preds <- bind_rows(all_preds,
+                             preds)
+    }
+    
+  }
+}
+# prepare the output file for submission
+
+vroom_write(x=all_preds, "./submission.csv", delim=",")
